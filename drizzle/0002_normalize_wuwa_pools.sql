@@ -1,0 +1,31 @@
+UPDATE gacha_records
+SET pool_type = CASE pool_type
+  WHEN '角色活动' THEN '1'
+  WHEN '角色活动唤取' THEN '1'
+  WHEN '角色精准调谐' THEN '1'
+  WHEN '武器活动' THEN '2'
+  WHEN '武器活动唤取' THEN '2'
+  WHEN '武器精准调谐' THEN '2'
+  WHEN '角色常驻' THEN '3'
+  WHEN '角色常驻唤取' THEN '3'
+  WHEN '角色调谐（常驻池）' THEN '3'
+  WHEN '武器常驻' THEN '4'
+  WHEN '武器常驻唤取' THEN '4'
+  WHEN '武器调谐（常驻池）' THEN '4'
+  WHEN '新手唤取' THEN '5'
+  WHEN '新手调谐' THEN '5'
+  WHEN '新手自选' THEN '6'
+  WHEN '新手自选唤取' THEN '6'
+  WHEN '感恩定向' THEN '7'
+  WHEN '感恩定向唤取' THEN '7'
+  WHEN '角色新旅' THEN '8'
+  WHEN '角色新旅唤取' THEN '8'
+  WHEN '武器新旅' THEN '9'
+  WHEN '武器新旅唤取' THEN '9'
+  WHEN '角色联动' THEN '10'
+  WHEN '角色联动唤取' THEN '10'
+  WHEN '武器联动' THEN '11'
+  WHEN '武器联动唤取' THEN '11'
+  ELSE pool_type
+END
+WHERE game = 'wuwa';

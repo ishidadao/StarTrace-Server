@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1786450764423,
+      "tag": "0000_famous_mattie_franklin",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786499449455,
+      "tag": "0001_lucky_vanisher",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786501251010,
+      "tag": "0002_normalize_wuwa_pools",
+      "breakpoints": true
+    }
+  ]
+}

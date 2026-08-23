@@ -1,0 +1,6 @@
+startrace.example.com {
+	encode zstd gzip
+	reverse_proxy http://127.0.0.1:3444 {
+		header_up X-Forwarded-Proto https
+	}
+}

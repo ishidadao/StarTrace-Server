@@ -1,0 +1,25 @@
+[Unit]
+Description=StarTrace gacha analytics website
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=startrace
+Group=startrace
+WorkingDirectory=/opt/startrace-server
+Environment=NODE_ENV=production
+Environment=WRANGLER_LOG_PATH=.wrangler/wrangler.log
+ExecStart=/usr/bin/npx wrangler dev --config dist/server/wrangler.json --local --ip 127.0.0.1 --port 3444 --persist-to .wrangler/state --log-level warn --show-interactive-dev-session false
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target
