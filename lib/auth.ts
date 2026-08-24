@@ -4,6 +4,8 @@ import type { NextRequest, NextResponse } from "next/server";
 const SESSION_COOKIE = "startrace_session";
 const SESSION_DAYS = 30;
 const PBKDF2_ITERATIONS = 310_000;
+const MAX_AUTH_BODY_BYTES = 4 * 1024;
+const DUMMY_PASSWORD_HASH = "pbkdf2-sha256$310000$c3RhcnRyYWNlLWR1bW15IQ$gAf7-TJeDC9bgA-4rLiBJfGEc8XOkGFvZMjy1jzAgjI";
 
 type UserRow = {
   id: string;
@@ -48,6 +50,25 @@ export function validatePassword(value: string) {
   return value;
 }
 
+export async function readCredentials(request: Request) {
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > MAX_AUTH_BODY_BYTES) {
+    throw new Error("登录请求体过大");
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    throw new Error("请求不是有效 JSON");
+  }
+  if (!body || typeof body !== "object") throw new Error("缺少登录信息");
+  const credentials = body as Record<string, unknown>;
+  if (typeof credentials.username !== "string" || typeof credentials.password !== "string") {
+    throw new Error("用户名与密码格式无效");
+  }
+  return { username: credentials.username, password: credentials.password };
+}
+
 export async function registerUser(usernameInput: string, passwordInput: string) {
   await ensureAuthSchema();
   const username = validateUsername(usernameInput);
@@ -68,13 +89,17 @@ export async function registerUser(usernameInput: string, passwordInput: string)
 
 export async function loginUser(usernameInput: string, passwordInput: string) {
   await ensureAuthSchema();
-  const username = usernameInput.trim().toLowerCase();
+  const username = validateUsername(usernameInput);
+  validatePassword(passwordInput);
   await assertLoginAllowed(username);
   const row = await db()
     .prepare("SELECT id, username, password_hash, created_at FROM users WHERE username = ?")
     .bind(username)
     .first<UserRow>();
-  const valid = row ? await verifyPassword(passwordInput, row.password_hash) : false;
+  const storedHash = row?.password_hash.startsWith("pbkdf2-sha256$")
+    ? row.password_hash
+    : DUMMY_PASSWORD_HASH;
+  const valid = await verifyPassword(passwordInput, storedHash);
   if (!row || !valid) {
     await recordLoginFailure(username);
     throw new Error("用户名或密码错误");

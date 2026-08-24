@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { registerUser, setSessionCookie } from "../../../../lib/auth";
+import { readCredentials, registerUser, setSessionCookie } from "../../../../lib/auth";
 
 export const runtime = "edge";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { username?: string; password?: string };
-    const session = await registerUser(body.username ?? "", body.password ?? "");
+    const body = await readCredentials(request);
+    const session = await registerUser(body.username, body.password);
     const response = NextResponse.json({
       user: session.user,
       accessToken: session.token,

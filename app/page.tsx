@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   calculateCurrentPity,
   calculateFiveStarPities,
@@ -76,6 +76,56 @@ function prettyUid(uid: string) {
   return uid.replace(/\s/g, "").replace(/(\d{3})(?=\d)/g, "$1 ").trim();
 }
 
+function useAnimatedValue(target: number, sequenceKey: string, duration = 720) {
+  const [value, setValue] = useState(0);
+  const valueRef = useRef(0);
+
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const reducedMotionFrame = requestAnimationFrame(() => {
+        valueRef.current = target;
+        setValue(target);
+      });
+      return () => cancelAnimationFrame(reducedMotionFrame);
+    }
+
+    let frame = 0;
+    let timer = 0;
+    let cancelled = false;
+    const animate = (from: number, to: number, milliseconds: number, complete?: () => void) => {
+      const startedAt = performance.now();
+      const tick = (now: number) => {
+        if (cancelled) return;
+        const elapsed = Math.min(1, (now - startedAt) / Math.max(1, milliseconds));
+        const eased = 1 - Math.pow(1 - elapsed, 3);
+        const next = from + (to - from) * eased;
+        valueRef.current = next;
+        setValue(next);
+        if (elapsed < 1) frame = requestAnimationFrame(tick);
+        else complete?.();
+      };
+      frame = requestAnimationFrame(tick);
+    };
+    const rise = () => animate(0, target, duration);
+    const current = valueRef.current;
+    if (current > 0.01) {
+      animate(current, 0, 220, () => {
+        timer = window.setTimeout(rise, 45);
+      });
+    } else {
+      rise();
+    }
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [duration, sequenceKey, target]);
+
+  return value;
+}
+
 function normalizeApiRecord(row: Record<string, unknown>, uid: string, game: GameId): RecordItem {
   const poolType = String(row.pool_type ?? row.poolType ?? row.gacha_type ?? "unknown");
   return {
@@ -137,7 +187,17 @@ function parseImport(input: unknown, selectedGame: GameId, typedUid: string) {
   const root = input as Record<string, unknown>;
   const groups: { game: GameId; uid: string; records: Record<string, unknown>[] }[] = [];
 
-  if (Array.isArray(root?.hk4e)) {
+  if (root?.format === "startrace-backup" && Array.isArray(root.accounts)) {
+    for (const account of root.accounts as Record<string, unknown>[]) {
+      const backupGame = String(account.game);
+      if (backupGame !== "genshin" && backupGame !== "wuwa") continue;
+      groups.push({
+        game: backupGame,
+        uid: String(account.uid ?? ""),
+        records: Array.isArray(account.records) ? account.records as Record<string, unknown>[] : [],
+      });
+    }
+  } else if (Array.isArray(root?.hk4e)) {
     for (const account of root.hk4e as Record<string, unknown>[]) {
       groups.push({
         game: "genshin",
@@ -232,6 +292,29 @@ export default function Home() {
   const luckTitle = luckScore === null
     ? "等待真实数据"
     : luckScore >= 75 ? "星光相随" : luckScore >= 45 ? "旅途平稳" : "厚积薄发";
+  const summaryAnimationKey = [
+    game,
+    activeUid,
+    pool,
+    records.length,
+    records[0]?.recordId ?? "empty",
+  ].join(":");
+  const animatedPity = useAnimatedValue(
+    currentPity === null || currentPityInvalid ? 0 : currentPity,
+    summaryAnimationKey,
+  );
+  const animatedLuckScore = useAnimatedValue(luckScore ?? 0, summaryAnimationKey);
+  const animatedTotal = useAnimatedValue(visible.length, summaryAnimationKey);
+  const animatedFiveStars = useAnimatedValue(fiveStars.length, summaryAnimationKey);
+  const animatedFourStars = useAnimatedValue(fourStars.length, summaryAnimationKey);
+  const animatedAveragePity = useAnimatedValue(averagePity ?? 0, summaryAnimationKey);
+  const rarityAnimationKey = `${summaryAnimationKey}:${rarityPool}`;
+  const animatedRarityTotal = useAnimatedValue(rarityRecords.length, rarityAnimationKey);
+  const animatedRarityFiveStars = useAnimatedValue(rarityFiveStars.length, rarityAnimationKey);
+  const animatedRarityFourStars = useAnimatedValue(rarityFourStars.length, rarityAnimationKey);
+  const animatedRarityFive = useAnimatedValue(rarity.five, rarityAnimationKey);
+  const animatedRarityFour = useAnimatedValue(rarity.four, rarityAnimationKey);
+  const animatedRarityThree = useAnimatedValue(rarity.three, rarityAnimationKey);
   const trend = useMemo(() => {
     const grouped = new Map<string, number>();
     for (const record of visible) {
@@ -381,6 +464,38 @@ export default function Home() {
     setNotice("已退出登录，本页不再显示云端记录");
   }
 
+  async function downloadBackup() {
+    if (!authUser) {
+      setDialog("auth");
+      setNotice("请先登录账号再下载备份");
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch("/api/records/export", { cache: "no-store" });
+      if (!response.ok) {
+        const data = await response.json() as { error?: string };
+        throw new Error(data.error ?? "备份生成失败");
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? "startrace-backup.json";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setNotice(`完整备份已生成，共 ${accounts.length} 个游戏 UID`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "备份生成失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function upload() {
     if (!authUser) {
       setDialog("auth");
@@ -467,13 +582,12 @@ export default function Home() {
           <div className="game-switch" role="tablist" aria-label="选择游戏">
             {(Object.keys(gameCopy) as GameId[]).map((id) => (
               <button key={id} className={game === id ? "selected" : ""} onClick={() => {
-                setGame(id);
                 setPool("all");
                 setRarityPool("all");
                 setHistoryExpanded(false);
                 const first = accounts.find((account) => account.game === id);
-                if (first) { setActiveUid(first.uid); void loadAccount(id, first.uid); }
-                else { setActiveUid(""); setRecords([]); }
+                if (first) void loadAccount(id, first.uid);
+                else { setGame(id); setActiveUid(""); setRecords([]); }
               }}>
                 <span>{id === "genshin" ? "◇" : "◈"}</span>{gameCopy[id].label}
               </button>
@@ -482,7 +596,6 @@ export default function Home() {
           <div className="account-list">
             {filteredAccounts.map((account, index) => (
               <button key={`${account.game}-${account.uid}`} className={activeUid === account.uid ? "account-card selected" : "account-card"} onClick={() => {
-                setActiveUid(account.uid);
                 void loadAccount(account.game, account.uid);
               }}>
                 <span className={`account-gem gem-${index + 1}`}>{index === 0 ? "✦" : "✧"}</span>
@@ -495,10 +608,14 @@ export default function Home() {
           <div className="privacy-note"><span>♢</span><p><b>UID 独立存放</b><br />每批数据都经过账号一致性校验。</p></div>
         </aside>
 
-        <div className="content" id="overview">
+        <div className="content dashboard-transition" id="overview" key={`${game}:${activeUid}:${pool}`}>
           <div className="page-heading">
             <div><p className="eyebrow">{gameCopy[game].kicker} · UID {activeUid || "未选择账号"}</p><h1>愿每一次相遇，都有迹可循。</h1><p className="subtitle">记录你的旅途，读懂每一次心动的概率。</p></div>
-            <div className="heading-actions"><span className="status-pill"><i />{notice}</span><button className="primary-button" onClick={() => { setUploadGame(game); setUploadUid(activeUid.replace(/\s/g, "")); setDialog(authUser ? "upload" : "auth"); }}>↑ 导入记录</button></div>
+            <div className="heading-actions">
+              <span className="status-pill"><i />{notice}</span>
+              <button className="backup-button" disabled={!authUser || busy} onClick={() => void downloadBackup()} title="下载当前网站账号下的全部原神与鸣潮记录">↓ 下载备份</button>
+              <button className="primary-button" onClick={() => { setUploadGame(game); setUploadUid(activeUid.replace(/\s/g, "")); setDialog(authUser ? "upload" : "auth"); }}>↑ 导入记录</button>
+            </div>
           </div>
 
           <section className="hero-grid">
@@ -506,11 +623,11 @@ export default function Home() {
               <div className="card-top"><span>{poolOptions[game].find((option) => option.id === pityPool)?.label ?? "当前卡池"}</span><span className="soft-tag">统计进行中</span></div>
               <div className="pity-body">
                 <div className="orb-wrap">
-                  <div className={`orb ${currentPity === null || currentPityInvalid ? "empty" : ""}`} style={{ "--progress": `${currentPity === null || currentPityInvalid ? 0 : Math.min(currentPity / pityLimit * 100, 100)}%` } as React.CSSProperties}>
-                    <div><strong>{currentPityInvalid ? "!" : (currentPity ?? "—")}</strong><small>{currentPity === null ? "暂无记录" : currentPityInvalid ? "记录异常" : "/ " + pityLimit + " 抽"}</small></div>
+                  <div className={`orb ${currentPity === null || currentPityInvalid ? "empty" : ""}`} style={{ "--progress": `${Math.min(animatedPity / pityLimit * 100, 100)}%` } as React.CSSProperties}>
+                    <div><strong>{currentPityInvalid ? "!" : currentPity === null ? "—" : Math.round(animatedPity)}</strong><small>{currentPity === null ? "暂无记录" : currentPityInvalid ? "记录异常" : "/ " + pityLimit + " 抽"}</small></div>
                   </div>
                 </div>
-                <div className="pity-copy"><p>{currentPity === null ? "保底进度" : currentPityInvalid ? "记录完整性" : "距离下一次五星"}</p><h2>{currentPity === null ? <>等待 <em>导入</em></> : currentPityInvalid ? <>需要 <em>补全记录</em></> : <>还差 <em>{Math.max(0, pityLimit - currentPity)}</em> 抽</>}</h2><div className="guarantee"><span>{currentPity === null ? "未载入" : guaranteeCopy.tag}</span><b>{currentPity === null ? "导入真实记录后自动计算" : guaranteeCopy.detail}</b></div></div>
+                <div className="pity-copy"><p>{currentPity === null ? "保底进度" : currentPityInvalid ? "记录完整性" : "距离下一次五星"}</p><h2>{currentPity === null ? <>等待 <em>导入</em></> : currentPityInvalid ? <>需要 <em>补全记录</em></> : <>还差 <em>{Math.max(0, pityLimit - Math.round(animatedPity))}</em> 抽</>}</h2><div className="guarantee"><span>{currentPity === null ? "未载入" : guaranteeCopy.tag}</span><b>{currentPity === null ? "导入真实记录后自动计算" : guaranteeCopy.detail}</b></div></div>
               </div>
               <div className="pool-tabs">
                 {poolOptions[game].map(({ id, label }) => <button key={id} className={pool === id ? "active" : ""} onClick={() => { setPool(id); setHistoryExpanded(false); }}>{label.replace("卡池", "").replace("祈愿", "")}</button>)}
@@ -519,18 +636,18 @@ export default function Home() {
 
             <article className="luck-card panel">
               <div className="card-top"><span>幸运画像</span><span className="tiny-help">?</span></div>
-              <div className="luck-score"><span className="spark">✦</span><strong>{luckScore ?? "—"}</strong><small>/ 100</small></div>
+              <div className="luck-score"><span className="spark">✦</span><strong>{luckScore === null ? "—" : Math.round(animatedLuckScore)}</strong><small>/ 100</small></div>
               <h3>「{luckTitle}」</h3><p title="综合分为65%出金效率与35%非保底UP结果；规则必触发的捕获明光按中性救济计算">{luckScore === null ? "导入记录后自动计算" : `出金效率 ${luck.pityScore} · UP运气 ${luck.upLuckScore}${luck.captureCount ? ` · 明光 ${luck.captureCount} 次` : ""}`}</p>
-              <div className="score-line"><i style={{ width: `${luckScore ?? 0}%` }} />{luckScore !== null && <span style={{ left: `${luckScore}%` }} />}</div>
+              <div className="score-line"><i style={{ width: `${animatedLuckScore}%` }} />{luckScore !== null && <span style={{ left: `${animatedLuckScore}%` }} />}</div>
               <div className="score-labels"><span>沉稳</span><span>幸运</span><span>天选</span></div>
             </article>
           </section>
 
           <section className="metric-grid" aria-label="核心统计">
-            <article className="metric panel"><span className="metric-icon purple">◌</span><div><p>总抽数</p><strong>{visible.length}</strong><small>云端当前筛选</small></div></article>
-            <article className="metric panel"><span className="metric-icon gold">✦</span><div><p>五星数量</p><strong>{fiveStars.length}</strong><small>{visible.length ? Math.round(fiveStars.length / visible.length * 1000) / 10 : 0}% 出金率</small></div></article>
-            <article className="metric panel"><span className="metric-icon blue">⌁</span><div><p>四星数量</p><strong>{fourStars.length}</strong><small>{visible.length ? Math.round(fourStars.length / visible.length * 1000) / 10 : 0}% 出紫率</small></div></article>
-            <article className="metric panel"><span className="metric-icon mint">↗</span><div><p>平均出金</p><strong>{averagePity ?? "—"}</strong><small>抽 / 五星</small></div></article>
+            <article className="metric panel"><span className="metric-icon purple">◌</span><div><p>总抽数</p><strong>{Math.round(animatedTotal)}</strong><small>云端当前筛选</small></div></article>
+            <article className="metric panel"><span className="metric-icon gold">✦</span><div><p>五星数量</p><strong>{Math.round(animatedFiveStars)}</strong><small>{animatedTotal ? Math.round(animatedFiveStars / animatedTotal * 1000) / 10 : 0}% 出金率</small></div></article>
+            <article className="metric panel"><span className="metric-icon blue">⌁</span><div><p>四星数量</p><strong>{Math.round(animatedFourStars)}</strong><small>{animatedTotal ? Math.round(animatedFourStars / animatedTotal * 1000) / 10 : 0}% 出紫率</small></div></article>
+            <article className="metric panel"><span className="metric-icon mint">↗</span><div><p>平均出金</p><strong>{averagePity === null ? "—" : Math.round(animatedAveragePity)}</strong><small>抽 / 五星</small></div></article>
           </section>
 
           <section className="analysis-grid" id="insights">
@@ -539,7 +656,7 @@ export default function Home() {
               {trend.length ? <>
                 <div className="chart-wrap">
                   <div className="y-axis"><span>{Math.max(...trend.map((point) => point.count))}</span><span>0</span></div>
-                  <div className="bars">{trend.map((point) => <i key={point.date} style={{ height: `${point.height}%` }}><span>{point.count} 抽</span></i>)}</div>
+                  <div className="bars" key={`${summaryAnimationKey}:${trendMode}`}>{trend.map((point, index) => <i key={point.date} style={{ height: `${point.height}%`, "--bar-index": index } as React.CSSProperties}><span>{point.count} 抽</span></i>)}</div>
                 </div>
                 <div className="x-axis"><span>{formatTrendDate(trend[0].date)}</span>{trend.length > 1 && <span>{formatTrendDate(trend[trend.length - 1].date)}</span>}</div>
               </> : <div className="chart-empty"><span>⌁</span><b>暂无趋势数据</b><small>导入记录后，这里会按真实日期生成图表</small></div>}
@@ -548,11 +665,11 @@ export default function Home() {
             <article className="rarity-card panel">
               <div className="card-top"><span>稀有度分布</span><select className="inline-select" value={rarityPool} onChange={(event) => setRarityPool(event.target.value)} aria-label="稀有度卡池筛选">{poolOptions[game].map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></div>
               <div className="donut-row">
-                <div className="donut" style={{ "--five": `${rarity.five * 3.6}deg`, "--four": `${(rarity.five + rarity.four) * 3.6}deg` } as React.CSSProperties}><div><strong>{rarityRecords.length}</strong><small>总抽数</small></div></div>
+                <div className="donut" style={{ "--five": `${animatedRarityFive * 3.6}deg`, "--four": `${(animatedRarityFive + animatedRarityFour) * 3.6}deg` } as React.CSSProperties}><div><strong>{Math.round(animatedRarityTotal)}</strong><small>总抽数</small></div></div>
                 <div className="legend">
-                  <div><i className="dot five"/><span>五星</span><b>{rarityFiveStars.length}</b><small>{rarity.five}%</small></div>
-                  <div><i className="dot four"/><span>四星</span><b>{rarityFourStars.length}</b><small>{rarity.four}%</small></div>
-                  <div><i className="dot three"/><span>三星</span><b>{rarityRecords.length - rarityFiveStars.length - rarityFourStars.length}</b><small>{rarity.three}%</small></div>
+                  <div><i className="dot five"/><span>五星</span><b>{Math.round(animatedRarityFiveStars)}</b><small>{Math.round(animatedRarityFive * 10) / 10}%</small></div>
+                  <div><i className="dot four"/><span>四星</span><b>{Math.round(animatedRarityFourStars)}</b><small>{Math.round(animatedRarityFour * 10) / 10}%</small></div>
+                  <div><i className="dot three"/><span>三星</span><b>{Math.max(0, Math.round(animatedRarityTotal - animatedRarityFiveStars - animatedRarityFourStars))}</b><small>{Math.round(animatedRarityThree * 10) / 10}%</small></div>
                 </div>
               </div>
             </article>
