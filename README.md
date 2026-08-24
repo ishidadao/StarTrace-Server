@@ -27,7 +27,8 @@
 
 ## 部分效果图
 
-<img width="1904" height="910" alt="image" src="https://github.com/user-attachments/assets/44ba0056-b230-4123-8532-191a95a9bc9e" />
+<img width="1919" height="914" alt="image" src="https://github.com/user-attachments/assets/9c4c0b2f-9314-4901-8257-3eda4258c2aa" />
+
 
 <img width="1904" height="911" alt="image" src="https://github.com/user-attachments/assets/35145c06-67db-4eaf-bec9-a5285d26a396" />
 
