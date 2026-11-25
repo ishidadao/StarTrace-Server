@@ -10,7 +10,31 @@ export const runtime = "edge";
 
 export async function POST(request: NextRequest) {
   if (!isRegistrationEnabled()) {
-    return NextResponse.json({ error: "注册未开放" }, { status: 403 });
+    // Finish small uploads before responding: the local Workers proxy can
+    // otherwise abort forwarding an early response while its body is in flight.
+    const reader = request.body?.getReader();
+    if (reader) {
+      try {
+        let bytes = 0;
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          bytes += chunk.value.byteLength;
+          if (bytes > 4096) {
+            await reader.cancel();
+            break;
+          }
+        }
+      } catch {
+        // Registration stays closed even when the upload is interrupted.
+      } finally {
+        reader.releaseLock();
+      }
+    }
+    return NextResponse.json(
+      { error: "注册未开放" },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   try {
