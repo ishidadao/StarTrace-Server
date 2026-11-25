@@ -23,6 +23,11 @@ function db(): D1Database {
   return env.DB as D1Database;
 }
 
+export function isRegistrationEnabled() {
+  const setting = (env as { STARTRACE_REGISTRATION_ENABLED?: string }).STARTRACE_REGISTRATION_ENABLED;
+  return setting?.trim().toLowerCase() !== "false";
+}
+
 export async function ensureAuthSchema() {
   if (authSchemaReady) return;
   const database = db();

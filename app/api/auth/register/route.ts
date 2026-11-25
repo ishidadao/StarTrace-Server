@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readCredentials, registerUser, setSessionCookie } from "../../../../lib/auth";
+import {
+  isRegistrationEnabled,
+  readCredentials,
+  registerUser,
+  setSessionCookie,
+} from "../../../../lib/auth";
 
 export const runtime = "edge";
 
 export async function POST(request: NextRequest) {
+  if (!isRegistrationEnabled()) {
+    return NextResponse.json({ error: "注册未开放" }, { status: 403 });
+  }
+
   try {
     const body = await readCredentials(request);
     const session = await registerUser(body.username, body.password);

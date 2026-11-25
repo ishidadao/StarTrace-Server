@@ -87,6 +87,9 @@ npm run build
 - 应用监听：`127.0.0.1:3444`
 - HTTPS 示例入口：`startrace.example.com`
 
+示例 systemd 服务默认关闭公开注册。首次部署需要创建账号时，可以暂时将
+`STARTRACE_REGISTRATION_ENABLED` 设为 `true`，创建完成后重新设为 `false` 并重启服务。
+
 先创建专用用户并安装项目：
 
 ```bash

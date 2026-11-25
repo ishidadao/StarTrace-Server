@@ -251,6 +251,7 @@ export default function Home() {
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [dialog, setDialog] = useState<"upload" | "auth" | "migrate" | null>(null);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -388,6 +389,16 @@ export default function Home() {
       setNotice("账号已登录，等待第一批数据");
     }
   }, [loadAccount]);
+
+  useEffect(() => {
+    void fetch("/api/auth/config", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = await response.json() as { registrationEnabled?: boolean };
+        setRegistrationEnabled(data.registrationEnabled === true);
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -570,7 +581,7 @@ export default function Home() {
               <span><b>{authUser.username}</b><small>退出登录</small></span>
             </button>
           </> : <>
-            <button className="ghost-button" onClick={() => { setAuthMode("login"); setDialog("auth"); }}>登录 / 注册</button>
+            <button className="ghost-button" onClick={() => { setAuthMode("login"); setDialog("auth"); }}>{registrationEnabled ? "登录 / 注册" : "登录"}</button>
             <button className="avatar" aria-label="尚未登录">旅</button>
           </>}
         </div>
@@ -715,7 +726,7 @@ export default function Home() {
             <p className="modal-intro">登录后，原神与鸣潮会归入同一账号下的两个独立游戏空间，不再互相覆盖。</p>
             <div className="modal-tabs">
               <button className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>登录</button>
-              <button className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>注册</button>
+              {registrationEnabled && <button className={authMode === "register" ? "active" : ""} onClick={() => setAuthMode("register")}>注册</button>}
             </div>
             <label><span>用户名</span><input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="3–24 位字母、数字或下划线" /></label>
             <label><span>密码</span><input type="password" autoComplete={authMode === "login" ? "current-password" : "new-password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="至少 10 位" onKeyDown={(event) => { if (event.key === "Enter") void authenticate(); }} /></label>

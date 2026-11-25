@@ -10,7 +10,8 @@ Group=startrace
 WorkingDirectory=/opt/startrace-server
 Environment=NODE_ENV=production
 Environment=WRANGLER_LOG_PATH=.wrangler/wrangler.log
-ExecStart=/usr/bin/npx wrangler dev --config dist/server/wrangler.json --local --ip 127.0.0.1 --port 3444 --persist-to .wrangler/state --log-level warn --show-interactive-dev-session false
+Environment=STARTRACE_REGISTRATION_ENABLED=false
+ExecStart=/usr/bin/npx wrangler dev --config dist/server/wrangler.json --local --ip 127.0.0.1 --port 3444 --persist-to .wrangler/state --log-level warn --show-interactive-dev-session false --var STARTRACE_REGISTRATION_ENABLED:${STARTRACE_REGISTRATION_ENABLED}
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15
